@@ -10,6 +10,7 @@ import os
 import hashlib
 import urllib2
 import StringIO
+import random
 
 class staticMapLite(object):
     def __init__(self):
@@ -19,8 +20,8 @@ class staticMapLite(object):
         self.tileSrcUrl = {
             'mapnik': 'http://tile.openstreetmap.org/{Z}/{X}/{Y}.png',
             'osmarenderer': 'http://otile1.mqcdn.com/tiles/1.0.0/osm/{Z}/{X}/{Y}.png',
-            'cycle': 'http://a.tile.opencyclemap.org/cycle/{Z}/{X}/{Y}.png',
-            'opentopomap':'http://a.tile.opentopomap.org/{Z}/{X}/{Y}.png',
+            'cycle': 'http://{ABC}.tile.opencyclemap.org/cycle/{Z}/{X}/{Y}.png',
+            'opentopomap':'http://{ABC}.tile.opentopomap.org/{Z}/{X}/{Y}.png',
         }
         self.tileDefaultSrc = 'mapnik'
         self.markerBaseDir = 'images/markers'
@@ -63,14 +64,17 @@ class staticMapLite(object):
         self.mapCacheID = ''
         self.mapCacheFile = ''
         self.mapCacheExtension = 'png'
-        # protected $zoom, $lat, $lon, $width, $height, $markers, $image, $maptype;
-        # protected $centerX, $centerY, $offsetX, $offsetY;
         self.zoom = 0
         self.lat = 0
         self.lon = 0
         self.width = 500
         self.height = 350
         self.markers = []
+        self.image = None
+        self.centerX = 0
+        self.centerY = 0
+        self.offsetX = 0 
+        self.offsetY = 0
         self.maptype = self.tileDefaultSrc
         self.needDebug=True
 
@@ -156,12 +160,13 @@ class staticMapLite(object):
         self.offsetY += math.floor(self.height / 2);
         self.offsetX += math.floor(startX - math.floor(self.centerX)) * self.tileSize
         self.offsetY += math.floor(startY - math.floor(self.centerY)) * self.tileSize
-        for x in range(startX,endX,1):
-            for y in  range(startY,endY,1):
+        for x in xrange(startX,endX+1,1):
+            for y in  xrange(startY,endY+1,1):
                 url = self.tileSrcUrl[self.maptype]
                 url = url.replace('{Z}',str(self.zoom))
                 url = url.replace('{X}',str(x))
                 url = url.replace('{Y}',str(y))
+                url = url.replace('{ABC}',random.choice('abc'))
                 self.debug(url)
                 tileData = self.fetchTile(url)
                 if (tileData):
@@ -227,9 +232,13 @@ class staticMapLite(object):
         return tile
 
     def copyrightNotice(self):
-        #logoImg = imagecreatefrompng(self.osmLogo);
+        logoImg = Image.open(self.osmLogo).convert('RGBA')
+        osmlogo_width, osmlogo_height = logoImg.size
+        width,height = self.image.size
+        destX = width-osmlogo_width
+        destY = height - osmlogo_height
+        self.image.paste(logoImg, (destX,destY))
         #imagecopy($this->image, $logoImg, imagesx($this->image) - imagesx($logoImg), imagesy($this->image) - imagesy($logoImg), 0, 0, imagesx($logoImg), imagesy($logoImg));
-        pass
 
     def sendHeader(self):
         """
@@ -249,6 +258,9 @@ class staticMapLite(object):
             self.copyrightNotice()
 
     def showMap(self,params):
+        """
+        :return : path to cached image of map 
+        """
         self.parseParams(params)
         if self.useMapCache:
             # use map cache, so check cache for map
@@ -260,28 +272,31 @@ class staticMapLite(object):
                 #imagepng($this->image, $this->mapCacheIDToFilename(), 9);
                 self.sendHeader()
                 if os.path.exists(self.mapCacheIDToFilename()):
-                    return open(self.mapCacheIDToFilename(),'r').read()
+                    #return open(self.mapCacheIDToFilename(),'r').read()
+                    return self.mapCacheIDToFilename()
                 else:
-                    return self.image.save(self.mapCacheIDToFilename())
+                    self.image.save(self.mapCacheIDToFilename())
+                    return self.mapCacheIDToFilename()
             else:
                 #// map is in cache
                 self.sendHeader()
                 data = open(self.mapCacheIDToFilename(),'r').read()
-                return data
+                #return data
+                return self.mapCacheIDToFilename()
         else:
             #// no cache, make map, send headers and deliver png
             self.makeMap()
             self.sendHeader()
             #return imagepng($this->image);
-            return ""
+            return self.mapCacheIDToFilename()
 
 if __name__ == "__main__":
     params = {
-        'center': '56.905628,60.387039',
+        'center': '56.835640,60.005951',
         'zoom': '15',
         'size': '1024x1024',
         'maptype': 'opentopomap',
         'markers': '40.702147,-74.015794,blues|40.711614,-74.012318,greeng|40.718217,-73.998284,redc'
     }
     map = staticMapLite()
-    map.showMap(params)
+    print map.showMap(params)

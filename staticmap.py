@@ -12,12 +12,13 @@ import hashlib
 import urllib2
 import StringIO
 import random
+import re
 
 
 class staticMapLite(object):
     def __init__(self):
-        self.maxWidth = 1024
-        self.maxHeight = 1024
+        self.maxWidth = 10240
+        self.maxHeight = 10240
         self.tileSize = 256
         self.tileSrcUrl = {
             'mapnik': {
@@ -41,28 +42,28 @@ class staticMapLite(object):
         self.osmLogo = 'images/osm_logo.png'
         self.markerPrototypes = {
             # found at http://www.mapito.net/map-marker-icons.html
-            'lighblue': {'regex': r'^lightblue([0-9]+)$/',
+            'lighblue': {'regex': "^lightblue([0-9]+)$",
                          'extension': '.png',
                          'shadow': False,
                          'offsetImage': '0,-19',
                          'offsetShadow': False
                          },
             # openlayers std markers
-            'ol-marker': {'regex': r'^ol-marker(|-blue|-gold|-green)+$/',
+            'ol-marker': {'regex': "^ol-marker(|-blue|-gold|-green)+$",
                           'extension': '.png',
                           'shadow': '../marker_shadow.png',
                           'offsetImage': '-10,-25',
                           'offsetShadow': '-1,-13'
                           },
             # // taken from http://www.visual-case.it/cgi-bin/vc/GMapsIcons.pl
-            'ylw': {'regex': r'^(pink|purple|red|ltblu|ylw)-pushpin$/',
+            'ylw': {'regex': "^(pink|purple|red|ltblu|ylw)-pushpin$",
                     'extension': '.png',
                     'shadow': '../marker_shadow.png',
                     'offsetImage': '-10,-32',
                     'offsetShadow': '-1,-13'
                     },
             # // http://svn.openstreetmap.org/sites/other/StaticMap/symbols/0.png
-            'ojw': {'regex': r'^bullseye$/',
+            'ojw': {'regex': "^bullseye$",
                     'extension': '.png',
                     'shadow': False,
                     'offsetImage': '-20,-20',
@@ -105,10 +106,7 @@ class staticMapLite(object):
 
     def parseLiteParams(self, params):
         # get zoom from GET paramter
-        try:
-            self.zoom = int(params['zoom'])
-        except:
-            self.zoom = 0
+        self.zoom = int(params.get('zoom', '0'))
         if self.zoom > 18:
             self.zoom = 18
         # // get lat and lon from GET paramter
@@ -158,6 +156,39 @@ class staticMapLite(object):
     def latToTile(self, lat, zoom):
         return (1 - math.log(math.tan(lat * math.pi / 180) + 1 / math.cos(lat * math.pi / 180)) / math.pi) / 2 * pow(2,
                                                                                                                      zoom)
+    def lonToPix(self,lon):
+        """
+        Dest X
+        :param lon:
+        :return:
+        """
+        self.debug('lonToPix:')
+        self.debug('in lon:'+str(lon))
+        self.debug('int(math.floor((self.width / 2) - self.tileSize * (self.centerX - self.lonToTile(lon, self.zoom))))')
+        self.debug('int(math.floor(('+str(self.width)+' / 2) - '+str(self.tileSize)+' * ('+str(self.centerX)+' - '+str(self.lonToTile(lon, self.zoom))+'))')
+        self.debug(self.lonToTile(lon, self.zoom))
+        return int(math.floor((self.width / 2) - self.tileSize * (self.centerX - self.lonToTile(lon, self.zoom))))
+
+    def latToPix(self,lat):
+        """
+        Dest Y
+        :param lat:
+        :return:
+        """
+        self.debug('latToPix:')
+        self.debug('in lat:'+str(lat))
+        self.debug('int(math.floor((self.height / 2) - self.tileSize * (self.centerY - self.latToTile(lat, self.zoom))))')
+        self.debug('int(math.floor(('+str(self.height) +' / 2) - '+str(self.tileSize)+' * ('+str(self.centerY)+' - '+str(self.latToTile(lat, self.zoom))+')))')
+        return int(math.floor((self.height / 2) - self.tileSize * (self.centerY - self.latToTile(lat, self.zoom))))
+
+    def coordsToPix(self,lat,lon):
+        """
+
+        :param lat:
+        :param lon:
+        :return: ( lat, lon )
+        """
+        return (self.latToPix(lat),self.lonToPix(lon))
 
     def initCoords(self):
         self.centerX = self.lonToTile(self.lon, self.zoom)
@@ -256,6 +287,7 @@ class staticMapLite(object):
         :return:
         """
         # loop thru marker array
+        self.debug(str(self.markers))
         for marker in self.markers:
             # // set some local variables
             markerLat = marker.get('lat')
@@ -263,24 +295,58 @@ class staticMapLite(object):
             markerType = marker.get('type', False)
             # // clear variables from previous loops
             markerFilename = ""
-            markerShadow = ""
+            markerShadow = False
             matches = False
             self.debug(str(marker))
             if (markerType):
-                for markerPrototype in self.markerPrototypes:
-                    """
-                                        if (preg_match($markerPrototype['regex'], $markerType, $matches)) {
-                        $markerFilename = $matches[0] . $markerPrototype['extension'];
-                        if ($markerPrototype['offsetImage']) {
-                            list($markerImageOffsetX, $markerImageOffsetY) = explode(",", $markerPrototype['offsetImage']);
-                        }
-                        $markerShadow = $markerPrototype['shadow'];
-                        if ($markerShadow) {
-                            list($markerShadowOffsetX, $markerShadowOffsetY) = explode(",", $markerPrototype['offsetShadow']);
-                        }
-                    }
-                    """
-                    pass
+                for name, markerPrototype in self.markerPrototypes.iteritems():
+                    self.debug(markerPrototype)
+                    self.debug('markerType:' + str(markerType))
+                    regex = re.compile(markerPrototype['regex'], 0)
+                    try:
+                        matches = re.match(markerPrototype['regex'], markerType, re.IGNORECASE)
+                    except:
+                        self.debug('Wrong marker ')
+                        continue
+                    markerImageOffsetX = 0
+                    markerImageOffsetY = 0
+                    if (matches):
+                        self.debug('matches.group(0):' + str(matches.group(0)))
+                        markerFilename = matches.group(0) + markerPrototype['extension']
+
+                        if markerPrototype['offsetImage']:
+                            markerImageOffsetX, markerImageOffsetY = markerPrototype['offsetImage'].split(',', 2)
+                            markerImageOffsetX, markerImageOffsetY = int(markerImageOffsetX), int(markerImageOffsetY)
+                        markerShadow = markerPrototype['shadow']
+                        if markerShadow:
+                            markerShadowOffsetX, markerShadowOffsetY = markerPrototype['offsetShadow'].split(',', 2)
+                            markerShadowOffsetX, markerShadowOffsetY = int(markerShadowOffsetX), int(markerShadowOffsetY)
+            fullfilename = os.path.join(self.markerBaseDir, markerFilename)
+            # // create img resource
+            self.debug(fullfilename)
+            if not os.path.exists(fullfilename) or os.path.isdir(fullfilename):
+                fullfilename = os.path.join(self.markerBaseDir, 'lightblue1.png')
+                markerImageOffsetX = 0
+                markerImageOffsetY = -19
+            self.debug(fullfilename)
+            markerImg = Image.open(fullfilename).convert('RGBA')
+            # // check for shadow + create shadow recource
+            if markerShadow:
+                 fullshadowfilename = os.path.join(self.markerBaseDir, markerShadow)
+                 if os.path.exists(fullshadowfilename) and not os.path.isdir(fullshadowfilename) and markerShadow:
+                     try:
+                         markerShadowImg = Image.open(fullshadowfilename).convert('RGBA')
+                     except:
+                         # Забить если не тень не загрузилась
+                         self.debug('Shadow load problem')
+
+            (destY, destX) = self.coordsToPix(markerLat,markerLon)
+            self.debug('destY:'+str(destY))
+            self.debug('destX:'+str(destX))
+            if (markerShadow and markerShadowImg):
+                self.image.paste( markerShadowImg, (destX+markerShadowOffsetX, destY+markerShadowOffsetY),markerShadowImg)
+            self.image.paste( markerImg, (destX+markerImageOffsetX, destY+markerImageOffsetY),markerImg)
+
 
     def tileUrlToFilename(self, url):
         url = url.replace('http://', '')
@@ -344,7 +410,8 @@ class staticMapLite(object):
         font = ImageFont.truetype(self.font, self.fontSize)
         width, height = self.image.size
 
-        draw.text((5, height-self.fontSize-5), self.tileSrcUrl[self.maptype]['copyright'], self.fontColor, font=font)
+        draw.text((5, height - self.fontSize - 5), self.tileSrcUrl[self.maptype]['copyright'], self.fontColor,
+                  font=font)
         """
         logoImg = Image.open(self.osmLogo).convert('RGBA')
         osmlogo_width, osmlogo_height = logoImg.size
@@ -353,7 +420,6 @@ class staticMapLite(object):
         destY = height - osmlogo_height
         self.image.paste(logoImg, (destX, destY))
         """
-
 
     def sendHeader(self):
         """
@@ -365,7 +431,6 @@ class staticMapLite(object):
         """
         pass
 
-
     def makeMap(self):
         self.initCoords()
         self.createBaseMap()
@@ -373,7 +438,6 @@ class staticMapLite(object):
             self.placeMarkers()
         if self.osmLogo:
             self.copyrightNotice()
-
 
     def showMap(self, params):
         """
@@ -387,7 +451,6 @@ class staticMapLite(object):
                 self.makeMap()
                 path = os.path.dirname(self.mapCacheIDToFilename().rstrip(os.pathsep)) or '.'
                 self.mkdir_recursive(path)
-                # imagepng($this->image, $this->mapCacheIDToFilename(), 9);
                 self.sendHeader()
                 if os.path.exists(self.mapCacheIDToFilename()):
                     # return open(self.mapCacheIDToFilename(),'r').read()
@@ -413,9 +476,9 @@ if __name__ == "__main__":
     params = {
         'center': '56.835640,60.005951',
         'zoom': '15',
-        'size': '1024x1024',
+        'size': '2048x2048',
         'maptype': 'opentopomap',
-        'markers': '40.702147,-74.015794,blues|40.711614,-74.012318,greeng|40.718217,-73.998284,redc'
+        'markers': '56.835640,60.005951,bullseye|56.834750,60.003941,lightblue2|56.836720,60.006531,lightblue3'
     }
     map = staticMapLite()
     print map.showMap(params)
